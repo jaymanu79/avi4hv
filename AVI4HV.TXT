@@ -1,0 +1,58 @@
+AVI to HV converter 2014 JUL 13
+damage_x@hyakushiki.net
+http://www.hyakushiki.net/
+
+update:
+
+Roy Schneider submitted a bugfix and improvement for the player routine
+allowing it to be used as a tool in a workbench icon.
+
+previous update:
+
+HAM8, more frame sizes supported, and source AVIs larger than 2GB
+left mouse button exits player, right button pause/unpause
+
+contents:
+
+HAMNEW.RUN - Amiga 68K executable for video playback, requires filename as
+        argument eg. HAMNEW.RUN WHATEVER.HV
+        (supports 288/304/320/336 pixels wide and max 240 lines)
+HAMNEW.ASM - source for video player
+
+HAMAGA.RUN - plays back HAM8 videos on AGA Amigas
+HAMAGA.ASM - source for AGA video player
+
+AVI4HV.EXE - updated converter compiled using freeBASIC for win32
+AVI4HV.BAS - freeBASIC source
+
+AVI4AGA.EXE - converts a 24-bit RGB uncompressed video to a HAM8 video
+AVI4AGA.BAS - freeBASIC source
+
+HAMP.RUN - old Amiga 68K executable for video playback, requires filename as
+        argument eg. HAMP.RUN WHATEVER.HV
+        (only supports 320 pixels wide and max 216 lines)
+
+Instructions for using this program
+
+First, create an AVI file with 15-bit RGB (555) uncompressed video,
+(use 24-bit RGB for HAM8 videos)
+and with the desired framerate. Save the audio as a separate uncompressed
+8-bit WAV file. (mono and stereo are both supported, sample rate must be
+less than 29KHz.) Virtualdub is a good program for this purpose.
+
+Run AVI4HV with the AVI file specified on the command line.
+Example:
+
+AVI4HV RAWVIDEO.AVI
+
+The program will attempt to parse the AVI header and will
+display some information like resolution, framerate, etc.
+If this info is wrong then there is some kind of problem and
+it probably isn't going to work. Otherwise, it will then ask
+you for the path/filename of the audio file, the output file
+name, and finally the option of dithering.
+
+Playback may be limitted by the speed of the CPU and disk on
+the Amiga. I have tested on an '030 accelerated A2000 and an A1200
+with a 1.3GB IDE drive and full screen videos at 15fps were possible.
+
