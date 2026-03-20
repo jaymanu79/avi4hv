@@ -3,7 +3,7 @@
 DIM fourcc AS STRING * 4
 DIM a AS STRING * 1
 dim k as string
-dim audfile as string
+dim as string vidfile,audfile
 dim ugh as string
 dim outfile as string
 
@@ -14,7 +14,7 @@ dim as short samplerate,channels,audbytes,aperiod
 dim as short x,y,z,v,h,rdiff,gdiff,bdiff,p,o,hh
 dim c as ushort
 
-dim as integer l,m,frames,frameno
+dim as long l,m,frames,frameno
 frameno = 0
 
 dim as ubyte r,g,b,oldhamr,oldhamg,oldhamb
@@ -31,19 +31,24 @@ dim ff3 as integer
 dim iline() as ubyte
 dim pline() as ubyte
 
+IF UCASE$(RIGHT$(COMMAND$,4)) <> ".AVI" THEN PRINT "Input file must have .avi extension":END
+vidfile=COMMAND$
+audfile=LEFT$(vidfile,LEN(vidfile)-4)+".wav"
+outfile=LEFT$(vidfile,LEN(vidfile)-4)+".h8v"
 PRINT
-PRINT "AVI to HAM8vid converter"
+PRINT "AVI to HAM8vid converter modified"
 PRINT "Only uncompressed 24-bit RGB videos are supported."
 PRINT
-PRINT "input file: "; COMMAND$
+PRINT "input video file:  "; vidfile
+PRINT "input audio file:  "; audfile
+PRINT "output HAM8V file: "; outfile
 PRINT
 
 ff=freefile
-'OPEN "c:\zopenraw.avi" FOR BINARY AS #ff
-OPEN COMMAND$ FOR BINARY AS #ff
-
+OPEN vidfile FOR BINARY ACCESS READ AS #ff
+IF Err>0 THEN PRINT "ERROR: Could not open video file ";vidfile:END
 GET #ff, , fourcc
-IF fourcc <> "RIFF" THEN PRINT "The specified file doesn't have a RIFF header!": END
+IF fourcc <> "RIFF" THEN PRINT "The specified video file doesn't have a RIFF header!": END
 GET #ff, , l ' turns out to be length-48
 GET #ff, , fourcc ' AVI
 
@@ -110,19 +115,13 @@ NEXT m
 goto a10
 
 a12:
-PRINT "Is this correct (y/n) "; : INPUT ugh
-IF ugh = "n" THEN END
-IF ugh = "N" THEN END
-
 
 a13:
-PRINT "audio file (must be 8-bit uncompressed WAV)"
-INPUT audfile
-'audfile = "c:\zopenraw.wav"
 ff2=freefile
-OPEN audfile FOR BINARY AS #ff2
+OPEN audfile FOR BINARY ACCESS READ AS #ff2
+IF Err>0 THEN PRINT "ERROR: Could not open audio file ";vidfile:END
 GET #ff2, , fourcc
-IF fourcc <> "RIFF" THEN PRINT "specified audio file doesn't have a RIFF header!": CLOSE #ff2: GOTO a13
+IF fourcc <> "RIFF" THEN PRINT "The audio file ";audfile;" doesn't have a RIFF header!": CLOSE #ff2: GOTO a13
 FOR x = 2 TO 6: GET #ff2, , l: NEXT x
 GET #ff2, , samplerate
 GET #ff2, , x: GET #ff2, , x: GET #ff2, , x
@@ -142,11 +141,9 @@ DIM audiol(1 TO audbytes) AS ubyte
 DIM audior(1 TO audbytes) AS ubyte
 
 
-PRINT "output file "; : INPUT outfile
-'outfile = "d:\zopen.hv"
 ff3=freefile
-OPEN outfile FOR BINARY AS #ff3
-
+OPEN outfile FOR BINARY ACCESS WRITE AS #ff3
+IF Err>0 THEN PRINT "ERROR: Could not output file ";outfile;" for writing":END
 
 ' make a header
 a = "H": PUT #ff3, , a
