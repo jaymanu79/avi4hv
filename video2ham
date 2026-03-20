@@ -1,0 +1,11 @@
+file=$1
+name=$(basename $file)
+name=${name%%.*}
+mkdir -p "$name"
+ffmpeg -i "$file" -map 0:a -ar 11025 -sample_fmt u8 -ac 1 -acodec pcm_u8 "$name/$name.wav" -map 0:v -map_metadata 0:s:0 -r 15 -s 320x216 -vcodec rawvideo -pix_fmt rgb555le -vf "vflip" "$name/$name.avi"
+ffmpeg -i "$file" -map 0:a -ar 16000 -sample_fmt u8 -acodec pcm_u8 "$name/${name}-8.wav" -map 0:v -map_metadata 0:s:0 -r 12 -s 336x240 -vcodec rawvideo -pix_fmt bgr24 -vf "vflip" "$name/${name}-8.avi"
+AVI4HV "$name/$name.avi"
+AVI4AGA "$name/${name}-8.avi"
+rm -v "$name"/*.avi "$name"/*.wav
+echo "Video converted to HAM"
+ls "$name"
