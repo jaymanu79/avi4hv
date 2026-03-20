@@ -19,7 +19,7 @@ dim as short samplerate,channels,audbytes,aperiod
 dim as short x,y,z,v,h,rdiff,gdiff,bdiff,p,o,hh
 dim c as ushort
 
-dim as integer l,m,frames,frameno
+dim as long l,m,frames,frameno
 frameno = 0
 
 dim as ubyte r,g,b,oldhamr,oldhamg,oldhamb
@@ -44,7 +44,6 @@ PRINT "input file: "; COMMAND$
 PRINT
 
 ff=freefile
-'OPEN "c:\zopenraw.avi" FOR BINARY AS #ff
 OPEN COMMAND$ FOR BINARY AS #ff
 
 GET #ff, , fourcc
