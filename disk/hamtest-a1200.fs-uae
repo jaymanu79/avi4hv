@@ -1,0 +1,6 @@
+# FS-UAE: Amiga 1200 (AGA) - plays HAM6 and HAM8
+[fs-uae]
+amiga_model = A1200
+# your own Kickstart 3.1 (A1200) ROM, e.g. from Amiga Forever:
+kickstart_file = kick31_a1200.rom
+hard_drive_0 = hamtest.hdf

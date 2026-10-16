@@ -1,0 +1,6 @@
+# FS-UAE: Amiga 500+ (ECS, Kickstart 2.04) - HAM6 only (HAM8 shows a message)
+[fs-uae]
+amiga_model = A500+
+# your own Kickstart 2.04 ROM:
+kickstart_file = kick204.rom
+hard_drive_0 = hamtest.hdf

@@ -1,0 +1,17 @@
+FailAt 21
+Echo "*N  HAMPLAY test disk*N"
+Echo "Keys:  Space pause, cursor Left/Right -/+10 s, Up/Down -/+1 min, Esc next"
+Echo "Mouse: right button pause, left button next*N"
+Echo "Measuring the speed of this machine (HAM6 16:9)..."
+HAMPLAY BENCH Videos/demo169.hv
+Ask "*NPress Return to play HAM6 16:9 (any Amiga)"
+HAMPLAY Videos/demo169.hv
+Ask "Press Return to play HAM6 4:3, full height (any Amiga)"
+HAMPLAY Videos/demo43.hv
+Ask "Press Return to play HAM8 16:9 (AGA only)"
+HAMPLAY Videos/demo169.h8v
+Ask "Press Return to play an old-format HAMV file"
+HAMPLAY Videos/legacy.hv
+Echo "*NDone. To play again, type for example:"
+Echo "  HAMPLAY Videos/demo169.h8v"
+Echo "  HAMPLAY BENCH Videos/demo169.h8v*N"

@@ -1,0 +1,7 @@
+__pycache__/
+*.part
+tests/harness
+tests/test.s
+tests/test.bin
+tests/test.lst
+tests/mem.bin
