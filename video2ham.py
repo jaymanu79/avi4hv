@@ -174,6 +174,9 @@ class VideoPipe:
         pw, ph = mode["pic_width"], mode["pic_height"]   # picture inside the frame
         vf = (f"fps={mode['fps'].numerator}/{mode['fps'].denominator},"
               f"scale={pw}:{ph}:flags=lanczos,"
+              # convert to RGB before padding: in a YUV 4:2:0 format, pad rounds
+              # an odd size down and refuses a picture with an odd height
+              f"format={mode['pix_fmt']},"
               f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1")
         cmd = (["ffmpeg", "-nostdin", "-v", "error"] + time_args(args) + ["-i", path,
                "-map", "0:v:0", "-an", "-vf", vf,
