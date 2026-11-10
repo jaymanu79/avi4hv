@@ -26,8 +26,8 @@ ffmpeg decodes, resizes and resamples the source directly through pipes;
 no intermediate AVI or WAV file is needed.
 
 ```sh
-python3 video2ham.py movie.mkv                  # HAM6, NTSC timing
-python3 video2ham.py -m both --pal movie.mkv    # HAM6 + HAM8, PAL timing
+python3 video2ham.py movie.mkv                  # HAM6, PAL timing
+python3 video2ham.py -m both --ntsc movie.mkv   # HAM6 + HAM8, NTSC timing
 python3 video2ham.py --start 1:00 --duration 30 -o clip movie.mp4
 python3 video2ham.py --help                     # all options
 ```
@@ -38,8 +38,9 @@ python3 video2ham.py --help                     # all options
 - **Sound:** normalised by default (`--no-normalize` to disable;
   `--compress` for quiet dialogue). Audio and video stay in sync over long
   videos.
-- **PAL / NTSC:** `--pal` computes the sound period for the PAL clock and
-  uses PAL-friendly frame rates (HAM6 16.7 fps, HAM8 12.5 fps).
+- **PAL / NTSC:** PAL by default: the sound period is computed for the PAL
+  clock, with PAL-friendly frame rates (HAM6 16.7 fps, HAM8 12.5 fps).
+  `--ntsc` uses the NTSC clock (HAM6 15 fps, HAM8 12 fps, up to 240 lines).
   HAMPLAY corrects the pitch on the other kind of machine anyway.
 - **Old players:** `--legacy` writes the old `HAMV` header for HAMNEW /
   HAMAGA.

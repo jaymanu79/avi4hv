@@ -559,8 +559,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Convert any video into Amiga HAM6 (.hv) and/or HAM8 (.h8v) videos.")
     parser.add_argument("video", help="input video (any format ffmpeg can read)")
-    parser.add_argument("-m", "--mode", choices=("ham6", "ham8", "both"), default="both",
-                        help="HAM6 (OCS/ECS), HAM8 (AGA) or both (default)")
+    parser.add_argument("-m", "--mode", choices=("ham6", "ham8", "both"), default="ham6",
+                        help="HAM6 (OCS/ECS, default), HAM8 (AGA) or both")
     parser.add_argument("-o", "--output", metavar="BASE",
                         help="output path without extension (default: same as the video)")
     parser.add_argument("--start", help="start time in the source (seconds or [hh:]mm:ss)")
@@ -568,19 +568,23 @@ def main():
     parser.add_argument("--width", type=int, choices=SUPPORTED_WIDTHS,
                         help="picture width (default 320 for HAM6, 336 for HAM8)")
     parser.add_argument("--height", type=int,
-                        help=f"maximum frame height (at most {MAX_HEIGHT}, {MAX_HEIGHT_PAL} with --pal). "
+                        help=f"maximum frame height (at most {MAX_HEIGHT}, {MAX_HEIGHT_PAL} in PAL). "
                              "The height follows the shape of the video: no black bars are stored, "
                              "the player centres the picture")
     parser.add_argument("--pad", action="store_true",
                         help="fixed frame height (--height, or 216 for HAM6 and 240 for HAM8) "
                              "with black bars stored, like the old converter")
-    parser.add_argument("--pal", action="store_true",
-                        help="make the video for PAL Amigas: frame rates that divide 50 Hz "
-                             "(16.67 for HAM6, 12.5 for HAM8) and up to 256 lines")
+    timing = parser.add_mutually_exclusive_group()
+    timing.add_argument("--pal", dest="pal", action="store_true", default=True,
+                        help="make the video for PAL Amigas (default): frame rates that "
+                             "divide 50 Hz (16.67 for HAM6, 12.5 for HAM8) and up to 256 lines")
+    timing.add_argument("--ntsc", dest="pal", action="store_false",
+                        help="make the video for NTSC Amigas: 15 fps for HAM6, 12 for HAM8, "
+                             "and up to 240 lines")
     parser.add_argument("--legacy", action="store_true",
                         help="old 'HAMV' format, for the original HAMNEW / HAMAGA players")
     parser.add_argument("--fps", type=float,
-                        help="frame rate (default 15 for HAM6, 12 for HAM8; with --pal 16.67 and 12.5)")
+                        help="frame rate (default 16.67 for HAM6, 12.5 for HAM8; with --ntsc 15 and 12)")
     parser.add_argument("--rate", type=int, help="audio sample rate in Hz, up to about 28800 "
                                                  "(default 11025 for HAM6, 16000 for HAM8)")
     parser.add_argument("--channels", type=int, choices=(1, 2),
