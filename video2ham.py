@@ -74,11 +74,12 @@ def check_tools():
 
 def probe(path):
     """Return (duration in seconds or None, number of audio channels or 0,
-    display aspect ratio of the video as a Fraction)."""
+    display aspect ratio of the video as a Fraction,
+    start times in seconds of the picture and of the sound)."""
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries",
-             "format=duration:stream=codec_type,channels,width,height,sample_aspect_ratio"
+             "format=duration:stream=codec_type,start_time,channels,width,height,sample_aspect_ratio"
              ":stream_tags=rotate:stream_side_data=rotation",
              "-of", "json", path],
             capture_output=True, text=True, check=True).stdout
@@ -96,7 +97,17 @@ def probe(path):
         duration = float(info.get("format", {}).get("duration"))
     except (TypeError, ValueError):
         duration = None
-    return duration, channels, aspect
+    # the picture and the sound do not always start together: an MP4 can hold
+    # several seconds of sound before its first picture
+    starts = (stream_start(videos[0]), stream_start(audio[0]) if audio else 0.0)
+    return duration, channels, aspect, starts
+
+
+def stream_start(stream):
+    try:
+        return float(stream.get("start_time", 0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def display_aspect(stream):
@@ -172,7 +183,10 @@ class VideoPipe:
     def __init__(self, path, args, mode):
         w, h = mode["width"], mode["height"]
         pw, ph = mode["pic_width"], mode["pic_height"]   # picture inside the frame
-        vf = (f"fps={mode['fps'].numerator}/{mode['fps'].denominator},"
+        # setpts: the video starts with its first picture. Otherwise, when the
+        # sound starts earlier, ffmpeg repeats that picture to fill the gap
+        vf = ("setpts=PTS-STARTPTS,"
+              f"fps={mode['fps'].numerator}/{mode['fps'].denominator},"
               f"scale={pw}:{ph}:flags=lanczos,"
               # convert to RGB before padding: in a YUV 4:2:0 format, pad rounds
               # an odd size down and refuses a picture with an odd height
@@ -403,7 +417,7 @@ def frame_geometry(width, aspect, pixel_aspect, max_height, fixed_height=None):
     return height, max(2, pic_w), max(2, pic_h)
 
 
-def convert_mode(path, args, mode_name, duration, source_channels, aspect):
+def convert_mode(path, args, mode_name, duration, source_channels, aspect, starts):
     mode = dict(MODES[mode_name])
     if args.width:
         mode["width"] = args.width
@@ -469,6 +483,16 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect):
 
     if source_channels:
         audio = read_audio(path, args, rate, channels)
+        # line the sound up with the first picture: cut the sound played
+        # before it, or add silence if the sound starts later
+        # (with --start, both begin at the start time at the earliest)
+        skip = parse_seconds(args.start) if args.start else 0.0
+        audio_delay = max(starts[1], skip) - max(starts[0], skip)
+        shift = round(audio_delay * rate) * channels
+        if shift < 0:
+            audio = audio[-shift:]
+        elif shift > 0:
+            audio = np.concatenate([np.full(shift, 128, np.uint8), audio])
     else:
         audio = np.zeros(0, dtype=np.uint8)  # silent video: the sound track will be silence
 
@@ -617,10 +641,10 @@ def main():
                     parse_seconds(value)
                 except ValueError:
                     raise ConversionError(f"invalid time: {value}")
-        duration, source_channels, aspect = probe(args.video)
+        duration, source_channels, aspect, starts = probe(args.video)
         modes = ("ham6", "ham8") if args.mode == "both" else (args.mode,)
         for mode_name in modes:
-            convert_mode(args.video, args, mode_name, duration, source_channels, aspect)
+            convert_mode(args.video, args, mode_name, duration, source_channels, aspect, starts)
     except ConversionError as e:
         print(f"\nerror: {e}", file=sys.stderr)
         sys.exit(1)

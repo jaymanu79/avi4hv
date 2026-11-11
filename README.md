@@ -37,7 +37,8 @@ python3 video2ham.py --help                     # all options
   play faster. `--pad` restores the old full-height behaviour.
 - **Sound:** normalised by default (`--no-normalize` to disable;
   `--compress` for quiet dialogue). Audio and video stay in sync over long
-  videos.
+  videos. The video starts with its first picture: sound played before it
+  (some MP4 files start the sound seconds earlier) is cut.
 - **PAL / NTSC:** PAL by default: the sound period is computed for the PAL
   clock, with PAL-friendly frame rates (HAM6 16.7 fps, HAM8 12.5 fps).
   `--ntsc` uses the NTSC clock (HAM6 15 fps, HAM8 12 fps, up to 240 lines).
