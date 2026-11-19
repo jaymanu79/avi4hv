@@ -750,7 +750,8 @@ msgbuf          ds.b    MSGMAX+2
         section chipdata,data_c
 
 CopperList:
-        dc.w    $1FC,0                  ; FMODE: 1x fetch (AGA)
+cl_fmode
+        dc.w    $1FC,0                  ; FMODE: bitplane fetch width (AGA)
         dc.w    $106,0                  ; BPLCON3: palette bank 0 (ECS/AGA)
         dc.w    $10C,$0011              ; BPLCON4: no bitplane XOR (AGA)
 cl_bplcon0

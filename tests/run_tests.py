@@ -102,7 +102,8 @@ def t_hdr(magic, aud, per, ch, vres, hres, planes, flags, aga, pal, name="v.hv",
         move.w cl_ddf+6,{r}+28
         move.w cl_diw+2,{r}+30
         move.w cl_diw+6,{r}+32
-        move.w v_planebytes(a4),{r}+34""")
+        move.w v_planebytes(a4),{r}+34
+        move.w cl_fmode+2,{r}+36""")
     if magic == "HAMV":
         planes = 8 if name.lower().endswith(".h8v") else 6
         flags = 0
@@ -112,13 +113,17 @@ def t_hdr(magic, aud, per, ch, vres, hres, planes, flags, aga, pal, name="v.hv",
         video = pb * planes * vres
         frame = video + aud * ch
         ddf = {288: (0x40, 0xC8), 304: (0x38, 0xC8), 320: (0x38, 0xD0), 336: (0x30, 0xD0)}[hres]
+        # AGA with 320 pixels: 64-bit bitplane fetch, 5 blocks of 64 pixels
+        fmode = 3 if aga and hres == 320 else 0
+        if fmode:
+            ddf = (0x38, 0xA0)
         centre = 0xAC if pal else 0x90
         vstart, vstop = centre - vres // 2, (centre + vres // 2) & 0xFF
         hstart, hstop = (0x120 - hres // 2) & 0xFF, (0x20 + hres // 2) & 0xFF
         exp = dict(period=ref_period(per, flags & 1, pal), video=video, frame=frame,
                    buf=(frame + 7) & ~7, planes=planes,
                    bplcon0=0x0A10 if planes == 8 else 0x6A00,
-                   mod=(planes - 1) * pb, ddf=ddf,
+                   mod=(planes - 1) * pb, ddf=ddf, fmode=fmode,
                    diw=((vstart << 8) | hstart, (vstop << 8) | hstop), pb=pb)
     checks.append((r, "hdr", (expect_ok, expect_aga_err, exp), f"{magic} {hres}x{vres} p{planes} aga={aga} pal={pal} {name}"))
 
@@ -127,6 +132,9 @@ t_hdr("HAM2", 734, 324, 1, 216, 320, 6, 0, False, True)                # NTSC fi
 t_hdr("HAM2", 1332, 222, 2, 240, 336, 8, 1, True, True)                # HAM8 PAL file, PAL machine
 t_hdr("HAM2", 1332, 222, 2, 240, 336, 8, 1, True, False)               # PAL file on NTSC machine
 t_hdr("HAM2", 1332, 222, 2, 240, 336, 8, 1, False, True, expect_ok=False, expect_aga_err=True)
+t_hdr("HAM2", 1332, 222, 2, 202, 320, 8, 1, True, True)                # HAM8 320 wide on AGA: FMODE 3
+t_hdr("HAM2", 734, 324, 1, 192, 320, 6, 1, True, True)                 # HAM6 320 wide on AGA: FMODE 3
+t_hdr("HAM2", 734, 324, 1, 192, 304, 6, 1, True, True)                 # 304 wide on AGA: FMODE 0
 t_hdr("HAMV", 734, 324, 1, 216, 320, 0, 0, True, False, name="clip.hv")
 t_hdr("HAMV", 1332, 223, 2, 240, 336, 0, 0, True, False, name="DH0:Movies/Clip.H8V")
 t_hdr("HAMV", 1332, 223, 2, 240, 336, 0, 0, False, False, name="x.h8v", expect_ok=False, expect_aga_err=True)
@@ -290,7 +298,7 @@ src = [f"        org ${ORG:X}", "start:", "        lea vars,a4"] + code + ["    
        "sep     dc.b '|',0", "        even",
        "vars    ds.b v_size", "        even",
        "vidfile ds.b NAMEMAX+1", "tokbuf ds.b NAMEMAX+1", "numbuf ds.b 12", "msgbuf ds.b MSGMAX+2", "        even",
-       "cl_bplcon0 dc.w $100,0", "cl_mod dc.w $108,0,$10A,0", "cl_ddf dc.w $92,0,$94,0", "cl_diw dc.w $8E,0,$90,0",
+       "cl_fmode dc.w $1FC,0", "cl_bplcon0 dc.w $100,0", "cl_mod dc.w $108,0,$10A,0", "cl_ddf dc.w $92,0,$94,0", "cl_diw dc.w $8E,0,$90,0",
        "cl_planes dc.w $E0,0,$E2,0,$E4,0,$E6,0,$E8,0,$EA,0,$EC,0,$EE,0,$F0,0,$F2,0,$F4,0,$F6,0,$F8,0,$FA,0,$FC,0,$FE,0"] + data
 open(os.path.join(HERE, "test.s"), "w").write("\n".join(src) + "\n")
 r = subprocess.run([VASM, "-quiet", "-Fbin", "-m68000", "-L", "test.lst", "-o", "test.bin", "test.s"],
@@ -348,7 +356,7 @@ for label, kind, exp, desc in checks:
             continue
         check(d0 == 0, f"hdr {desc} should pass", hex(d0))
         got = dict(period=W(a + 4), video=L(a + 6), frame=L(a + 10), buf=L(a + 14), planes=W(a + 18),
-                   bplcon0=W(a + 20), mod=W(a + 22), ddf=(W(a + 26), W(a + 28)), diw=(W(a + 30), W(a + 32)), pb=W(a + 34))
+                   bplcon0=W(a + 20), mod=W(a + 22), ddf=(W(a + 26), W(a + 28)), diw=(W(a + 30), W(a + 32)), pb=W(a + 34), fmode=W(a + 36))
         check(W(a + 22) == W(a + 24), f"hdr {desc} mod2")
         for k in e:
             check(got[k] == e[k], f"hdr {desc} {k}", f"got {got[k]!r} expected {e[k]!r}")

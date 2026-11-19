@@ -73,6 +73,10 @@ HAMPLAY [BENCH] <file>
 
 - Plays HAM6 on any Amiga and HAM8 on AGA. It detects the chipset and
   PAL/NTSC itself.
+- On AGA, 320-pixel-wide videos (the default for both HAM6 and HAM8) are
+  shown with the 64-bit bitplane fetch (FMODE 3): the display then uses
+  about 4 times fewer chip RAM cycles, which are left for loading the
+  frames. Other widths use the normal 16-bit fetch.
 - Reads both `HAM2` and the old `HAMV` files.
 - Runs from the Shell or from a Workbench icon.
 

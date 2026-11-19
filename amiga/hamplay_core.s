@@ -391,6 +391,18 @@ SetupDisplay:
         adda.w  d0,a0
         move.w  (a0)+,cl_ddf+2
         move.w  (a0),cl_ddf+6
+        ; AGA, 320 pixels: fetch the bitplanes 64 bits at a time (FMODE 3).
+        ; The display then takes about 4 times fewer chip RAM cycles,
+        ; which are left for copying the next frame into chip RAM.
+        ; Needs lines of a multiple of 8 bytes (only 320 here).
+        clr.w   cl_fmode+2
+        tst.b   v_aga(a4)
+        beq.s   .fm0
+        cmp.w   #40,v_planebytes(a4)
+        bne.s   .fm0
+        move.w  #3,cl_fmode+2
+        move.w  fm3_ddfstop(pc),cl_ddf+6
+.fm0
         ; display window, centred
         move.w  #$90,d2         ; NTSC centre line
         tst.b   v_pal(a4)
@@ -620,6 +632,9 @@ AddMachine:
 
 ; ----------------------------------------------------------- constants
 
+fm3_ddfstop     dc.w    $A0     ; DDFSTOP for 320 pixels with FMODE 3: the
+                                ; fetch stops after the 64-pixel block
+                                ; where DDFSTOP falls, plus one more
 ddftable                        ; DDFSTRT, DDFSTOP for 288/304/320/336
         dc.w    $40,$C8
         dc.w    $38,$C8
