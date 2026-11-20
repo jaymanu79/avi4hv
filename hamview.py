@@ -24,6 +24,7 @@ Requires Python 3.8+ and numpy; pygame for playing, ffmpeg for exporting.
 import argparse
 import os
 import shutil
+import re
 import struct
 import subprocess
 import sys
@@ -55,6 +56,41 @@ class HamError(Exception):
 # --------------------------------------------------------------------------
 # File access
 # --------------------------------------------------------------------------
+
+def next_part(path):
+    """film.hv -> film.001.hv, film.001.hv -> film.002.hv (video2ham --split)."""
+    m = re.match(r"^(.*)\.(\d{3})(\.[^./\\]+)$", path)
+    if m:
+        return f"{m.group(1)}.{int(m.group(2)) + 1:03d}{m.group(3)}"
+    root, ext = os.path.splitext(path)
+    return f"{root}.001{ext}"
+
+
+class Frames:
+    """The frames of all the parts as one array: data[i, cols] and
+    data[a:b, cols], like a single memmap."""
+
+    def __init__(self, maps):
+        self.maps = maps
+        self.starts = np.cumsum([0] + [len(m) for m in maps])
+
+    def __len__(self):
+        return int(self.starts[-1])
+
+    def __getitem__(self, key):
+        rows, cols = key
+        if isinstance(rows, slice):
+            first, stop, _ = rows.indices(len(self))
+            out = []
+            while first < stop:
+                p = int(np.searchsorted(self.starts, first, side="right")) - 1
+                end = min(stop, int(self.starts[p + 1]))
+                out.append(self.maps[p][first - self.starts[p]:end - self.starts[p], cols])
+                first = end
+            return np.concatenate(out) if out else self.maps[0][0:0, cols]
+        p = int(np.searchsorted(self.starts, rows, side="right")) - 1
+        return self.maps[p][rows - self.starts[p], cols]
+
 
 class HamFile:
     def __init__(self, path):
@@ -106,13 +142,30 @@ class HamFile:
         self.audiosize = self.audbytes * self.channels
         self.framesize = self.videosize + self.audiosize
 
-        size = os.path.getsize(path)
-        self.nframes = max(0, size - self.hdrsize) // self.framesize
-        self.trailing = max(0, size - self.hdrsize) - self.nframes * self.framesize
-        if self.nframes == 0:
+        # the file, then the following parts (film.001.hv...) with the same header
+        self.parts, maps, self.trailing = [], [], 0
+        part = path
+        while True:
+            size = os.path.getsize(part)
+            n = max(0, size - self.hdrsize) // self.framesize
+            self.trailing += max(0, size - self.hdrsize) - n * self.framesize
+            if n:
+                maps.append(np.memmap(part, dtype=np.uint8, mode="r", offset=self.hdrsize,
+                                      shape=(n, self.framesize)))
+            self.parts.append(part)
+            if self.format != "HAM2":
+                break                      # the old format is never split
+            part = next_part(part)
+            if not os.path.isfile(part):
+                break
+            with open(part, "rb") as f:
+                if f.read(20) != head[:20]:
+                    self.mismatch = part
+                    break
+        if not maps:
             raise HamError("no complete frame in the file")
-        self.data = np.memmap(path, dtype=np.uint8, mode="r", offset=self.hdrsize,
-                              shape=(self.nframes, self.framesize))
+        self.data = Frames(maps)
+        self.nframes = len(self.data)
 
     @property
     def duration(self):
@@ -135,6 +188,11 @@ class HamFile:
             f"data rate: {self.framesize * self.fps / 1024:.0f} KB/s from disk",
             f"chip RAM: {3 * ((self.framesize + 7) & ~7) // 1024} KB for HAMPLAY's 3 buffers",
         ]
+        if len(self.parts) > 1:
+            lines.insert(1, f"parts:    {len(self.parts)} files, {self.parts[0]} to "
+                            f"{os.path.basename(self.parts[-1])}")
+        if getattr(self, "mismatch", None):
+            lines.append(f"warning:  {self.mismatch} has another format: not played after this one")
         if self.trailing:
             lines.append(f"warning:  {self.trailing} extra bytes at the end (incomplete frame)")
         if self.format.startswith("HAMV"):

@@ -29,9 +29,15 @@ no intermediate AVI or WAV file is needed.
 python3 video2ham.py movie.mkv                  # HAM6, PAL timing
 python3 video2ham.py -m both --ntsc movie.mkv   # HAM6 + HAM8, NTSC timing
 python3 video2ham.py --start 1:00 --duration 30 -o clip movie.mp4
+python3 video2ham.py --split 150 movie.mkv      # files of 150 MB at most
 python3 video2ham.py --help                     # all options
 ```
 
+- **Split files:** `--split MB` cuts a long video into files of at most
+  MB megabytes: `movie.hv`, `movie.001.hv`, `movie.002.hv`... Each part
+  has its own header and plays on its own; HAMPLAY and `hamview.py` go on
+  with the next part by themselves. Big files are slow on FFS (it walks a
+  chain of index blocks to reach the data), so this helps on a CF card.
 - **Aspect ratio:** the picture keeps its aspect ratio, and only the
   picture lines are stored (no black bars), so 16:9 videos are smaller and
   play faster. `--pad` restores the old full-height behaviour.
@@ -92,6 +98,11 @@ frame rate this machine and disk can sustain.
 
 `LOOP` starts the video again from the beginning when it ends, until you
 quit.
+
+Split videos (`video2ham.py --split`): play the first file, `movie.hv`.
+At the end of each part HAMPLAY opens the next one (`movie.001.hv`...)
+if it has the same format, and with `LOOP` goes back to `movie.hv` after
+the last one. The seek keys stay within the current part.
 
 To rebuild the player:
 

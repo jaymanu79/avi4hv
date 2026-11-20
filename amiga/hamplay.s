@@ -48,6 +48,8 @@ _LVOCurrentDir          equ -126
 _LVODateStamp           equ -192
 _LVODelay               equ -198
 _LVOSeek                equ -66
+_LVOExamineFH           equ -390
+fib_Size                equ 124
 OFFSET_BEGINNING        equ -1
 OFFSET_END              equ 1
 
@@ -332,6 +334,16 @@ _main:
         bsr     ReadHeader
         tst.l   d0
         bne     .error
+        lea     v_hdr(a4),a0            ; kept to recognise the next parts
+        lea     v_hdr0(a4),a1
+        moveq   #4,d0
+.hcopy  move.l  (a0)+,(a1)+
+        dbf     d0,.hcopy
+        lea     vidfile,a0
+        lea     firstfile,a1
+.ncopy  move.b  (a0)+,(a1)+
+        bne.s   .ncopy
+        clr.w   v_part(a4)
         bsr     CheckHeader
         tst.l   d0
         bne     .error
@@ -514,38 +526,123 @@ ReadFrame:
         moveq   #0,d0                   ; Z set
 .short  rts
 
-; Rewind - LOOP: back to the first frame. The failed read has already
-; advanced to the next buffer: step back so the next read reuses it, and
-; never overwrites the buffer on screen or the sound being played.
-Rewind:
+; EndOfFile - after a failed read: go on with the next part of a split
+; video (film.001.hv...), else with LOOP back to the first file.
+; The failed read has already advanced to the next buffer: step back so
+; the next read reuses it, and never overwrites the buffer on screen or
+; the sound being played. Out: d0 = 0 if there is more to read.
+EndOfFile:
         move.w  v_cur(a4),d0
         subq.w  #1,d0
         bpl.s   .buf
         move.w  v_nbuf(a4),d0
         subq.w  #1,d0
 .buf    move.w  d0,v_cur(a4)
-        move.l  v_dos(a4),a6
+        lea     vidfile,a0
+        lea     partname,a1
+        bsr     NextPartName
+        tst.l   d0
+        bne.s   .nonext
+        lea     partname,a0
+        bsr     OpenPart
+        tst.l   d0
+        bne.s   .nonext
+        addq.w  #1,v_part(a4)
+        moveq   #0,d0
+        rts
+.nonext tst.b   v_loop(a4)
+        beq.s   .stop
+        tst.w   v_part(a4)
+        beq.s   .rewind                 ; a single file: just go back
+        lea     firstfile,a0
+        bsr     OpenPart
+        tst.l   d0
+        bne.s   .stop
+        clr.w   v_part(a4)
+        moveq   #0,d0
+        rts
+.rewind move.l  v_dos(a4),a6
         move.l  v_fh(a4),d1
         moveq   #0,d2
         move.w  v_hdrsize(a4),d2
         moveq   #OFFSET_BEGINNING,d3
         jsr     _LVOSeek(a6)
         clr.l   v_frameno(a4)
+        moveq   #0,d0
+        rts
+.stop   moveq   #-1,d0
+        rts
+
+; OpenPart - a0 = name of a part: open it and, if its header is the one of
+; the first file, use it instead of the current file.
+; Out: d0 = 0 if done (current file closed, ready at the first frame)
+OpenPart:
+        movem.l d2-d4/a2,-(sp)
+        cmp.w   #20,v_hdrsize(a4)       ; only HAM2 files are split
+        bne.s   .no
+        move.l  a0,a2
+        move.l  v_dos(a4),a6
+        move.l  a0,d1
+        move.l  #MODE_OLDFILE,d2
+        jsr     _LVOOpen(a6)
+        move.l  d0,d4
+        beq.s   .no
+        move.l  d4,d1
+        move.l  #hdrbuf,d2
+        moveq   #20,d3
+        jsr     _LVORead(a6)
+        cmp.l   #20,d0
+        bne.s   .bad
+        lea     hdrbuf,a0
+        lea     v_hdr0(a4),a1
+        moveq   #4,d0
+.cmp    cmpm.l  (a0)+,(a1)+
+        dbne    d0,.cmp
+        bne.s   .bad
+        move.l  v_fh(a4),d1             ; same video: switch to it
+        jsr     _LVOClose(a6)
+        move.l  d4,v_fh(a4)
+        lea     vidfile,a1
+.name   move.b  (a2)+,(a1)+
+        bne.s   .name
+        bsr     InitSeek                ; frames of this part, back to frame 0
+        moveq   #0,d0
+        bra.s   .out
+.bad    move.l  d4,d1
+        jsr     _LVOClose(a6)
+.no     moveq   #-1,d0
+.out    movem.l (sp)+,d2-d4/a2
         rts
 
 ; InitSeek - number of frames in the file and in 10 seconds
+; The length comes from ExamineFH: Seek to the end of a big file makes
+; FFS walk the whole chain of extension blocks, which takes seconds.
 InitSeek:
         move.l  v_dos(a4),a6
+        cmp.w   #36,LIB_VERSION(a6)
+        blo.s   .seek
+        move.l  v_fh(a4),d1
+        move.l  #fib,d2
+        jsr     _LVOExamineFH(a6)
+        tst.l   d0
+        beq.s   .seek
         move.l  v_fh(a4),d1
         moveq   #0,d2
+        move.w  v_hdrsize(a4),d2
+        moveq   #OFFSET_BEGINNING,d3
+        jsr     _LVOSeek(a6)            ; to the first frame
+        move.l  fib+fib_Size,d0
+        bra.s   .len
+.seek   move.l  v_fh(a4),d1             ; Kickstart 1.x: Seek to the end...
+        moveq   #0,d2
         moveq   #OFFSET_END,d3
-        jsr     _LVOSeek(a6)            ; go to the end...
+        jsr     _LVOSeek(a6)
         move.l  v_fh(a4),d1
         moveq   #0,d2
         move.w  v_hdrsize(a4),d2
         moveq   #OFFSET_BEGINNING,d3
         jsr     _LVOSeek(a6)            ; ...and back: returns the length
-        bsr     CalcTotal
+.len    bsr     CalcTotal
         bsr     CalcSkip
         clr.l   v_frameno(a4)
         rts
@@ -607,9 +704,9 @@ Play:
         bne     .end
         bsr     ReadFrame
         beq.s   .got
-        tst.b   v_loop(a4)              ; end of the file
-        beq     .end
-        bsr     Rewind
+        bsr     EndOfFile               ; next part, or LOOP
+        tst.l   d0
+        bne     .end
         bsr     ReadFrame
         bne     .end                    ; not even one frame in the file
 .got    btst    #10-8,$16(a5)           ; right button: pause
@@ -702,9 +799,14 @@ Bench:
         move.l  a0,d1
         jsr     _LVODateStamp(a6)
         clr.l   v_frames(a4)
+        sf      v_loop(a4)              ; BENCH reads the video once
 .loop   bsr     ReadFrame
+        beq.s   .got
+        bsr     EndOfFile               ; next part of a split video
+        tst.l   d0
         bne.s   .end
-        move.l  a2,a0
+        bra.s   .loop
+.got    move.l  a2,a0
         bsr     SetPlanes
         addq.l  #1,v_frames(a4)
         btst    #6,$BFE001              ; left button or Esc: stop
@@ -768,6 +870,11 @@ vars            ds.b    v_size
         even
 vidfile         ds.b    NAMEMAX+1
 tokbuf          ds.b    NAMEMAX+1
+firstfile       ds.b    NAMEMAX+1
+partname        ds.b    NAMEMAX+1
+hdrbuf          ds.b    20
+        cnop    0,4
+fib             ds.b    260             ; FileInfoBlock (longword aligned)
 numbuf          ds.b    12
 msgbuf          ds.b    MSGMAX+2
 

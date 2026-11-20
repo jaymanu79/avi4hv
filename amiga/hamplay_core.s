@@ -37,6 +37,8 @@ v_pal           rs.b 1          ; PAL machine
 v_quit          rs.b 1          ; user asked to quit
 v_loop          rs.b 1          ; LOOP: start again at the end of the file
                 rs.b 1          ; (keeps v_hdr on an even address)
+v_part          rs.w 1          ; number of the part being read (split videos)
+v_hdr0          rs.b 20         ; header as read from the first file
 v_hdr           rs.b 20         ; file header, see H_xxx
 v_size          rs.b 0
 
@@ -236,6 +238,87 @@ ParseArgs:
         move.b  d0,(a3)+
         addq.w  #1,d2
 .full   rts
+
+; NextPartName - a0 = file name, a1 = buffer (NAMEMAX+1) -> name of the
+; next part of a split video: film.hv -> film.001.hv -> film.002.hv ...
+; Out: d0 = 0 if done, else there is no next name (999 reached, too long).
+NextPartName:
+        movem.l d2-d4/a2-a3,-(sp)
+        move.l  a0,a2                   ; a2 = start
+        sub.l   a3,a3                   ; a3 = last '.', 0 if none
+.scan   move.b  (a0)+,d0
+        beq.s   .eos
+        cmp.b   #'.',d0
+        bne.s   .nodot
+        lea     -1(a0),a3
+        bra.s   .scan
+.nodot  cmp.b   #'/',d0
+        beq.s   .sep
+        cmp.b   #':',d0
+        bne.s   .scan
+.sep    sub.l   a3,a3                   ; a dot in a directory name: not an extension
+        bra.s   .scan
+.eos    subq.l  #1,a0                   ; a0 = end (the NUL)
+        move.l  a3,d0
+        bne.s   .ext
+        move.l  a0,a3                   ; no extension: number at the end
+.ext    move.l  a0,d4
+        sub.l   a2,d4                   ; d4 = length
+        ; already numbered: ".ddd" just before the extension?
+        move.l  a3,d0
+        sub.l   a2,d0
+        cmp.l   #4,d0
+        blt.s   .first
+        cmp.b   #'.',-4(a3)
+        bne.s   .first
+        lea     -3(a3),a0
+        moveq   #0,d2
+        moveq   #2,d3
+.dig    moveq   #0,d0
+        move.b  (a0)+,d0
+        sub.b   #'0',d0
+        cmp.b   #9,d0
+        bhi.s   .first                  ; not a digit
+        mulu    #10,d2
+        add.w   d0,d2
+        dbf     d3,.dig
+        addq.w  #1,d2
+        cmp.w   #999,d2
+        bhi.s   .fail
+        lea     -3(a3),a0               ; the digits are rewritten from here
+        moveq   #0,d3                   ; no dot to add
+        bra.s   .write
+.first  moveq   #1,d2                   ; first extra part: .001
+        moveq   #-1,d3                  ; add a dot
+        addq.l  #4,d4
+        move.l  a3,a0
+.write  cmp.l   #NAMEMAX,d4
+        bhi.s   .fail
+.pre    cmp.l   a0,a2                   ; copy the start of the name
+        beq.s   .num
+        move.b  (a2)+,(a1)+
+        bra.s   .pre
+.num    tst.b   d3
+        beq.s   .nodot2
+        move.b  #'.',(a1)+
+.nodot2 divu    #100,d2
+        add.b   #'0',d2
+        move.b  d2,(a1)+
+        clr.w   d2
+        swap    d2
+        divu    #10,d2
+        add.b   #'0',d2
+        move.b  d2,(a1)+
+        swap    d2
+        add.b   #'0',d2
+        move.b  d2,(a1)+
+.rest   move.b  (a3)+,(a1)+             ; the extension and the NUL
+        bne.s   .rest
+        moveq   #0,d0
+        bra.s   .out
+.fail   moveq   #-1,d0
+.out    movem.l (sp)+,d2-d4/a2-a3
+        rts
 
 ; StrCaseEq - compare a0 with a1 (a1 in upper case) -> d0.b = -1 if equal
 StrCaseEq:
