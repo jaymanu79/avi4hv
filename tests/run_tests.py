@@ -59,6 +59,28 @@ t_args('"Work:a b.h8v" loop BENCH', True, True, "Work:a b.h8v", loop=True)
 t_args("loop.hv", True, False, "loop.hv")
 t_args("LOOP", False, False, "", loop=True)
 
+# ------------------------------------------------------------- split videos
+def t_part(name, expected):
+    a, r = new("pn"), new("res")
+    asm_string(a, name)
+    slot(r, 4 + 260)
+    code.append(f"        lea {a},a0\n        lea {r}+4,a1\n        bsr NextPartName\n        move.l d0,{r}")
+    checks.append((r, "part", expected, repr(name)))
+
+t_part("film.hv", "film.001.hv")
+t_part("film.001.hv", "film.002.hv")
+t_part("film.009.hv", "film.010.hv")
+t_part("film.099.h8v", "film.100.h8v")
+t_part("Work:Vid/film.998.hv", "Work:Vid/film.999.hv")
+t_part("film.999.hv", None)                                  # no part 1000
+t_part("Work:Vid.old/film", "Work:Vid.old/film.001")         # dot in a directory
+t_part("DH0:film", "DH0:film.001")
+t_part("a.b.hv", "a.b.001.hv")
+t_part("x.12a.hv", "x.12a.001.hv")                           # not a part number
+t_part("film.001", "film.001.001")                           # .001 is the extension here
+t_part("f" * 249 + ".hv", None)                              # 256 characters: too long
+t_part("f" * 248 + ".hv", "f" * 248 + ".001.hv")                # 255: fits
+
 # ------------------------------------------------------------- header checks
 NTSC, PAL = 3579545, 3546895
 
@@ -371,6 +393,13 @@ for label, kind, exp, desc in checks:
             check(q == x // y and rr == x % y, f"div {x}/{y}", f"{q} {rr}")
             check(m == (x * y) & 0xFFFFFFFF, f"mul {x}*{y}", hex(m))
             check(d1 == y, f"mul keeps d1 {x}*{y}")
+    elif kind == "part":
+        d0 = L(a)
+        if exp is None:
+            check(d0 != 0, f"part {desc} should fail")
+        else:
+            check(d0 == 0, f"part {desc} ok", hex(d0))
+            check(S(a + 4) == exp, f"part {desc}", repr(S(a + 4)))
     elif kind == "fmt":
         ln = W(a)
         got = mem[a + 2:a + 2 + ln].decode("latin-1")

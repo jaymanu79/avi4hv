@@ -442,6 +442,11 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
     max_height = MAX_HEIGHT_PAL if args.pal and not args.legacy else MAX_HEIGHT
     if args.height and not 1 <= args.height <= max_height:
         raise ConversionError(f"height {args.height} not supported (max {max_height})")
+    if args.split is not None:
+        if args.split <= 0:
+            raise ConversionError("--split must be a size in MB, above 0")
+        if args.legacy:
+            raise ConversionError("--split needs HAMPLAY: the old players cannot chain files")
     if args.legacy and not (args.height or args.pad):
         args.pad = True       # the old players do not centre short pictures
     if args.pad:
@@ -524,56 +529,124 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
     video = VideoPipe(path, args, mode)
     frameno = 0
     samples_per_frame = audbytes * channels
-    # write to a temporary file, renamed at the end, so that a failed
-    # conversion never destroys a previous output
-    tmp_path = out_path + ".part"
+    if args.legacy:
+        # old format, for HAMNEW / HAMAGA (NTSC clock, mode from the extension)
+        header = b"HAMV" + struct.pack(">HHHHH", audbytes, aperiod, channels,
+                                       mode["height"], mode["width"])
+    else:
+        # HAM2: adds the number of bitplanes and the clock used for the period
+        header = b"HAM2" + struct.pack(">HHHHHHHH", audbytes, aperiod, channels, mode["height"],
+                                       mode["width"], mode["planes"], 1 if pal_clock else 0, 0)
+    limit = int(args.split * 1024 * 1024) if args.split else None
+    writer = PartWriter(out_path, header, frame_total, limit)
     try:
-        with open(tmp_path, "wb") as out:
-            if args.legacy:
-                # old format, for HAMNEW / HAMAGA (NTSC clock, mode from the extension)
-                out.write(b"HAMV")
-                out.write(struct.pack(">HHHHH", audbytes, aperiod, channels,
-                                      mode["height"], mode["width"]))
+        for raw in video.frames():
+            want_preview = bool(args.preview) and frameno % args.preview_every == 0
+            encoded, display = encoder.encode(raw, want_display=want_preview)
+            if want_preview:
+                write_ppm(os.path.join(args.preview, f"{mode_name}_{frameno:05d}.ppm"),
+                          display, mode_name)
+
+            # sound of this frame, padded with silence after the end
+            start = frameno * samples_per_frame
+            block = audio[start:start + samples_per_frame]
+            if len(block) < samples_per_frame:
+                block = np.concatenate([block, np.full(samples_per_frame - len(block), 128, np.uint8)])
+            block = block ^ 0x80  # unsigned -> signed 8-bit
+            if channels == 2:
+                writer.write_frame(encoded, block[0::2].tobytes(), block[1::2].tobytes())
             else:
-                # HAM2: adds the number of bitplanes and the clock used for the period
-                out.write(b"HAM2")
-                out.write(struct.pack(">HHHHHHHH", audbytes, aperiod, channels, mode["height"],
-                                      mode["width"], mode["planes"], 1 if pal_clock else 0, 0))
-            for raw in video.frames():
-                want_preview = bool(args.preview) and frameno % args.preview_every == 0
-                encoded, display = encoder.encode(raw, want_display=want_preview)
-                if want_preview:
-                    write_ppm(os.path.join(args.preview, f"{mode_name}_{frameno:05d}.ppm"),
-                              display, mode_name)
-                out.write(encoded)
+                writer.write_frame(encoded, block.tobytes())
 
-                # sound of this frame, padded with silence after the end
-                start = frameno * samples_per_frame
-                block = audio[start:start + samples_per_frame]
-                if len(block) < samples_per_frame:
-                    block = np.concatenate([block, np.full(samples_per_frame - len(block), 128, np.uint8)])
-                block = block ^ 0x80  # unsigned -> signed 8-bit
-                if channels == 2:
-                    out.write(block[0::2].tobytes())
-                    out.write(block[1::2].tobytes())
-                else:
-                    out.write(block.tobytes())
-
-                frameno += 1
-                if not args.quiet and frameno % 10 == 0:
-                    progress = f"{frameno}/{total}" if total else str(frameno)
-                    print(f"\r  frame {progress}", end="", flush=True)
+            frameno += 1
+            if not args.quiet and frameno % 10 == 0:
+                progress = f"{frameno}/{total}" if total else str(frameno)
+                print(f"\r  frame {progress}", end="", flush=True)
         video.close()
         if frameno == 0:
             raise ConversionError("ffmpeg produced no frame (is the start time past the end?)")
     except BaseException:
         video.kill()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        writer.abort()
         raise
-    os.replace(tmp_path, out_path)
+    names = writer.finish()
     if not args.quiet:
-        print(f"\r  {frameno} frames written to {out_path}")
+        if len(names) == 1:
+            print(f"\r  {frameno} frames written to {out_path}")
+        else:
+            print(f"\r  {frameno} frames written to {len(names)} parts: "
+                  f"{names[0]} ... {os.path.basename(names[-1])}")
+
+
+def part_name(path, n):
+    """Name of part n of a split video: film.hv, film.001.hv, film.002.hv..."""
+    if n == 0:
+        return path
+    root, ext = os.path.splitext(path)
+    return f"{root}.{n:03d}{ext}"
+
+
+class PartWriter:
+    """Writes the frames, starting a new file before `limit` bytes.
+
+    Every part has its own header, so each one also plays on its own;
+    HAMPLAY goes on with the next part at the end of each file. Parts are
+    written to temporary files and renamed only when the whole conversion
+    worked, so a failure never destroys a previous output."""
+
+    MAX_PARTS = 1000
+
+    def __init__(self, path, header, frame_bytes, limit=None):
+        self.path, self.header = path, header
+        if limit:
+            self.per_part = (limit - len(header)) // frame_bytes
+            if self.per_part < 1:
+                raise ConversionError(f"--split too small: one frame is {frame_bytes} bytes")
+        else:
+            self.per_part = None
+        self.done = []                 # temporary files of the finished parts
+        self.out = None
+        self.count = 0                 # frames in the current part
+
+    def write_frame(self, *chunks):
+        if self.out is None or (self.per_part and self.count == self.per_part):
+            self._next()
+        for c in chunks:
+            self.out.write(c)
+        self.count += 1
+
+    def _next(self):
+        if self.out:
+            self.out.close()
+        n = len(self.done)
+        if n >= self.MAX_PARTS:
+            raise ConversionError("more than 1000 parts: raise --split")
+        tmp = part_name(self.path, n) + ".part"
+        self.done.append(tmp)
+        self.out = open(tmp, "wb")
+        self.out.write(self.header)
+        self.count = 0
+
+    def finish(self):
+        """Rename the parts into place and remove the parts of an older,
+        longer conversion, which the player would otherwise chain on."""
+        if self.out:
+            self.out.close()
+        names = [part_name(self.path, n) for n in range(len(self.done))]
+        for tmp, name in zip(self.done, names):
+            os.replace(tmp, name)
+        n = len(names)
+        while os.path.exists(part_name(self.path, n)):
+            os.remove(part_name(self.path, n))
+            n += 1
+        return names
+
+    def abort(self):
+        if self.out:
+            self.out.close()
+        for tmp in self.done:
+            if os.path.exists(tmp):
+                os.remove(tmp)
 
 
 def parse_seconds(text):
@@ -630,6 +703,9 @@ def main():
                         help="save the HAM rendering of some frames as PPM images in DIR")
     parser.add_argument("--preview-every", type=int, default=25, metavar="N",
                         help="with --preview, save one frame every N (default 25)")
+    parser.add_argument("--split", type=float, metavar="MB",
+                        help="cut the video into files of at most MB megabytes "
+                             "(film.hv, film.001.hv, film.002.hv...); HAMPLAY plays them in a row")
     parser.add_argument("-q", "--quiet", action="store_true", help="no progress output")
     args = parser.parse_args()
     if args.preview_every < 1:
