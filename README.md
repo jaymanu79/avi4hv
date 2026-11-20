@@ -86,6 +86,28 @@ HAMPLAY [BENCH] <file>
 `BENCH` reads the file as fast as possible, without sound, and reports the
 frame rate this machine and disk can sustain.
 
+### Measured speed
+
+`HAMPLAY BENCH` on an A4000/040 (AmigaOS 3.2, CompactFlash card on the
+internal IDE), PAL, with the default converter settings (HAM6 320 wide,
+HAM8 336 wide). "16:9" and "4:3" are the shape of the source video; the
+data rates are approximate.
+
+| Video | Frame | From `RAM:` | From the CF card | Plays at |
+|---|---|---|---|---|
+| HAM6 16:9 (320×192) | ~47 KB | 53.8 fps (~2.5 MB/s) | 25.9 fps (~1.2 MB/s) | 16.67 fps: OK |
+| HAM6 4:3 (320×256) | ~62 KB | 38.8 fps (~2.4 MB/s) | 19.6 fps (~1.2 MB/s) | 16.67 fps: OK |
+| HAM8 16:9 (336×202) | ~69 KB | 30.8 fps (~2.1 MB/s) | 11.9 fps (~0.8 MB/s) | 12.5 fps: just too slow from the CF |
+| HAM8 4:3 (336×256) | ~87 KB | 18.3 fps (~1.6 MB/s) | 7.1 fps (~0.6 MB/s) | 12.5 fps: too slow from the CF |
+
+- The CF card on the A4000 IDE gives about 1.2 MB/s: the CPU copies every
+  byte into chip RAM.
+- HAM8 loses more than its bigger frames explain: with 8 bitplanes the
+  display takes many more chip RAM cycles, which are then missing for
+  the copy from the disk (visible from `RAM:` too).
+- From the CF card, HAM8 needs a lower frame rate (`--fps 10`) or fewer
+  lines (`--height`), or HAM6.
+
 To rebuild the player:
 
 ```sh
