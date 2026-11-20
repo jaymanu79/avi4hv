@@ -903,4 +903,6 @@ cl_diw  dc.w    $8E,$2C81               ; DIWSTRT
 cl_planes
         dc.w    $E0,0,$E2,0,$E4,0,$E6,0,$E8,0,$EA,0,$EC,0,$EE,0
         dc.w    $F0,0,$F2,0,$F4,0,$F6,0,$F8,0,$FA,0,$FC,0,$FE,0
+cl_lines                                ; line repeat (SetupLines), else the end
         dc.w    $FFFF,$FFFE
+        dcb.w   6*256+2,0

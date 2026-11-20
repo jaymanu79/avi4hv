@@ -38,6 +38,8 @@ v_quit          rs.b 1          ; user asked to quit
 v_loop          rs.b 1          ; LOOP: start again at the end of the file
                 rs.b 1          ; (keeps v_hdr on an even address)
 v_part          rs.w 1          ; number of the part being read (split videos)
+v_vdiv          rs.w 1          ; each stored line is shown v_vdiv times (1, 2, 4)
+v_lines         rs.w 1          ; lines on screen (H_VRES x v_vdiv)
 v_hdr0          rs.b 20         ; header as read from the first file
 v_hdr           rs.b 20         ; file header, see H_xxx
 v_size          rs.b 0
@@ -51,6 +53,7 @@ H_VRES          equ 10
 H_HRES          equ 12
 H_PLANES        equ 14          ; 6 (HAM6) or 8 (HAM8)
 H_FLAGS         equ 16          ; bit 0: period computed for the PAL clock
+                                ; bits 1-2: each line shown 1, 2 or 4 times
 H_RESERVED      equ 18
 
 MSGMAX          equ 2000
@@ -385,10 +388,20 @@ CheckHeader:
         beq.s   .wok
         cmp.w   #336,d0
         bne     .bad
-.wok    move.w  H_VRES(a0),d0
+.wok    move.w  H_FLAGS(a0),d1          ; line repeat: 1, 2 or 4
+        lsr.w   #1,d1
+        and.w   #3,d1
+        cmp.w   #2,d1
+        bhi     .bad
+        moveq   #1,d2
+        lsl.w   d1,d2
+        move.w  d2,v_vdiv(a4)
+        move.w  H_VRES(a0),d0
         beq     .bad
+        mulu.w  d2,d0                   ; lines on screen
         cmp.w   #256,d0
         bhi     .bad
+        move.w  d0,v_lines(a4)
         move.w  H_CHANNELS(a0),d0
         beq     .bad
         cmp.w   #2,d0
@@ -503,7 +516,7 @@ SetupDisplay:
         tst.b   v_pal(a4)
         beq.s   .ntsc
         move.w  #$AC,d2         ; PAL centre line
-.ntsc   move.w  v_hdr+H_VRES(a4),d1
+.ntsc   move.w  v_lines(a4),d1
         lsr.w   #1,d1
         move.w  d2,d0
         sub.w   d1,d0           ; vertical start
@@ -514,7 +527,7 @@ SetupDisplay:
         sub.w   d3,d1           ; horizontal start
         move.b  d1,d0
         move.w  d0,cl_diw+2
-        move.w  v_hdr+H_VRES(a4),d0
+        move.w  v_lines(a4),d0
         lsr.w   #1,d0
         add.w   d2,d0           ; vertical stop
         lsl.w   #8,d0
@@ -522,7 +535,54 @@ SetupDisplay:
         add.w   d3,d1           ; horizontal stop
         move.b  d1,d0
         move.w  d0,cl_diw+6
+        bsr     SetupLines
         movem.l (sp)+,d2-d3/a0
+        rts
+
+; SetupLines - line repeat (--vdiv): at the start of each line on screen,
+; the copper sets the modulo used at its end. A line shown again gets
+; -planebytes, which brings the bitplane pointers back to its start; the
+; last showing of a stored line gets the normal modulo, to the next one.
+SetupLines:
+        movem.l d2-d6/a0,-(sp)
+        lea     cl_lines,a0
+        cmp.w   #1,v_vdiv(a4)
+        beq.s   .end
+        move.w  cl_mod+2,d4             ; normal modulo
+        move.w  v_planebytes(a4),d5
+        neg.w   d5                      ; modulo to show the line again
+        move.w  d5,cl_mod+2             ; first line: shown again
+        move.w  d5,cl_mod+6
+        move.w  cl_diw+2,d2
+        lsr.w   #8,d2                   ; first line on screen
+        moveq   #0,d3                   ; line number on screen
+        move.w  v_vdiv(a4),d6
+        subq.w  #1,d6                   ; repeat count - 1
+.line   cmp.w   #256,d2
+        bne.s   .wait
+        move.l  #$FFDFFFFE,(a0)+        ; past line 255
+.wait   move.w  d2,d0
+        lsl.w   #8,d0
+        move.b  #$07,d0
+        move.w  d0,(a0)+                ; WAIT line, start of the line
+        move.w  #$FFFE,(a0)+
+        move.w  d3,d0
+        and.w   d6,d0
+        cmp.w   d6,d0
+        beq.s   .next
+        move.w  d5,d1                   ; shown again
+        bra.s   .set
+.next   move.w  d4,d1                   ; then the next stored line
+.set    move.w  #$108,(a0)+
+        move.w  d1,(a0)+
+        move.w  #$10A,(a0)+
+        move.w  d1,(a0)+
+        addq.w  #1,d2
+        addq.w  #1,d3
+        cmp.w   v_lines(a4),d3
+        blo.s   .line
+.end    move.l  #$FFFFFFFE,(a0)
+        movem.l (sp)+,d2-d6/a0
         rts
 
 ; SetPlanes - point the copper list's bitplane pointers to buffer a0

@@ -458,6 +458,14 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
     pixel_aspect = PIXEL_ASPECT_PAL if args.pal else PIXEL_ASPECT_NTSC
     mode["height"], mode["pic_width"], mode["pic_height"] = frame_geometry(
         mode["width"], aspect, pixel_aspect, max_height, fixed)
+    vdiv = args.vdiv or 1
+    if vdiv > 1:
+        # store 1 line in vdiv: the player shows each one vdiv times, so the
+        # picture keeps its size on screen with vdiv times less data
+        if args.legacy:
+            raise ConversionError("--vdiv needs HAMPLAY: the old players cannot repeat lines")
+        mode["height"] = max(1, mode["height"] // vdiv)
+        mode["pic_height"] = max(2, min(mode["height"], round(mode["pic_height"] / vdiv)))
 
     base = args.output or os.path.splitext(path)[0]
     out_path = base + mode["ext"]
@@ -516,6 +524,7 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
 
     if not args.quiet:
         print(f"{mode_name.upper()}{' PAL' if pal_clock else ''}: {mode['width']}x{mode['height']}"
+              f"{' (each line shown %d times)' % vdiv if vdiv > 1 else ''}"
               f"{'' if (mode['pic_width'], mode['pic_height']) == (mode['width'], mode['height']) else ' (picture %dx%d)' % (mode['pic_width'], mode['pic_height'])}, "
               f"{float(fps):.3g} fps, {rate} Hz {'stereo' if channels == 2 else 'mono'}"
               f"{'' if source_channels else ' (silent)'} -> {out_path}")
@@ -536,7 +545,7 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
     else:
         # HAM2: adds the number of bitplanes and the clock used for the period
         header = b"HAM2" + struct.pack(">HHHHHHHH", audbytes, aperiod, channels, mode["height"],
-                                       mode["width"], mode["planes"], 1 if pal_clock else 0, 0)
+                                       mode["width"], mode["planes"], (1 if pal_clock else 0) | (vdiv.bit_length() - 1) << 1, 0)
     limit = int(args.split * 1024 * 1024) if args.split else None
     writer = PartWriter(out_path, header, frame_total, limit)
     try:
@@ -703,6 +712,9 @@ def main():
                         help="save the HAM rendering of some frames as PPM images in DIR")
     parser.add_argument("--preview-every", type=int, default=25, metavar="N",
                         help="with --preview, save one frame every N (default 25)")
+    parser.add_argument("--vdiv", type=int, choices=(1, 2, 4), metavar="N",
+                        help="store 1 line in N (2 or 4); HAMPLAY shows each one N times: "
+                             "same picture size, N times less data, N times more fps possible")
     parser.add_argument("--split", type=float, metavar="MB",
                         help="cut the video into files of at most MB megabytes "
                              "(film.hv, film.001.hv, film.002.hv...); HAMPLAY plays them in a row")
