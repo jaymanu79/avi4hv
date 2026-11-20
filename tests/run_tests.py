@@ -81,6 +81,44 @@ t_part("film.001", "film.001.001")                           # .001 is the exten
 t_part("f" * 249 + ".hv", None)                              # 256 characters: too long
 t_part("f" * 248 + ".hv", "f" * 248 + ".001.hv")                # 255: fits
 
+# ------------------------------------------------------------- line repeat
+LINES_BYTES = 2 * (6 * 256 + 4)
+
+def t_lines(vres, vdiv, pal, hres=320, planes=6, aga=False, ok=True):
+    r = new("lines")
+    slot(r, 16 + LINES_BYTES)
+    flags = (1 if pal else 0) | ((vdiv.bit_length() - 1) << 1)
+    code.append(f"""        move.l #'HAM2',v_hdr+H_MAGIC(a4)
+        move.w #662,v_hdr+H_AUDBYTES(a4)
+        move.w #321,v_hdr+H_PERIOD(a4)
+        move.w #1,v_hdr+H_CHANNELS(a4)
+        move.w #{vres},v_hdr+H_VRES(a4)
+        move.w #{hres},v_hdr+H_HRES(a4)
+        move.w #{planes},v_hdr+H_PLANES(a4)
+        move.w #{flags},v_hdr+H_FLAGS(a4)
+        move.b #{-1 if aga else 0},v_aga(a4)
+        move.b #{-1 if pal else 0},v_pal(a4)
+        bsr CheckHeader
+        move.l d0,{r}
+        tst.l d0
+        bne.s .l{r}
+        bsr SetupDisplay
+        move.w cl_mod+2,{r}+4
+        move.w cl_mod+6,{r}+6
+        move.w cl_diw+2,{r}+8
+        move.w cl_diw+6,{r}+10
+        move.l v_videosize(a4),{r}+12""")
+    copy_str("cl_lines", f"{r}+16", LINES_BYTES)
+    code.append(f".l{r}")
+    checks.append((r, "lines", (vres, vdiv, pal, hres, planes, ok), f"vres={vres} vdiv={vdiv} pal={pal}"))
+
+t_lines(128, 2, True)                 # 256 lines on screen, PAL: crosses line 255
+t_lines(64, 4, True)
+t_lines(96, 2, False, hres=336, planes=8, aga=True)
+t_lines(150, 1, True)                 # no repeat: empty list
+t_lines(129, 2, True, ok=False)       # 258 lines: too tall
+t_lines(64, 8, True, ok=False)        # repeat 8 not supported
+
 # ------------------------------------------------------------- header checks
 NTSC, PAL = 3579545, 3546895
 
@@ -325,7 +363,8 @@ src = [f"        org ${ORG:X}", "start:", "        lea vars,a4"] + code + ["    
        "vars    ds.b v_size", "        even",
        "vidfile ds.b NAMEMAX+1", "tokbuf ds.b NAMEMAX+1", "numbuf ds.b 12", "msgbuf ds.b MSGMAX+2", "        even",
        "cl_fmode dc.w $1FC,0", "cl_bplcon0 dc.w $100,0", "cl_mod dc.w $108,0,$10A,0", "cl_ddf dc.w $92,0,$94,0", "cl_diw dc.w $8E,0,$90,0",
-       "cl_planes dc.w $E0,0,$E2,0,$E4,0,$E6,0,$E8,0,$EA,0,$EC,0,$EE,0,$F0,0,$F2,0,$F4,0,$F6,0,$F8,0,$FA,0,$FC,0,$FE,0"] + data
+       "cl_planes dc.w $E0,0,$E2,0,$E4,0,$E6,0,$E8,0,$EA,0,$EC,0,$EE,0,$F0,0,$F2,0,$F4,0,$F6,0,$F8,0,$FA,0,$FC,0,$FE,0",
+       "cl_lines ds.w 6*256+4"] + data
 open(os.path.join(HERE, "test.s"), "w").write("\n".join(src) + "\n")
 r = subprocess.run([VASM, "-quiet", "-Fbin", "-m68000", "-L", "test.lst", "-o", "test.bin", "test.s"],
                    cwd=HERE, capture_output=True, text=True, stdin=subprocess.DEVNULL)
@@ -393,6 +432,37 @@ for label, kind, exp, desc in checks:
             check(q == x // y and rr == x % y, f"div {x}/{y}", f"{q} {rr}")
             check(m == (x * y) & 0xFFFFFFFF, f"mul {x}*{y}", hex(m))
             check(d1 == y, f"mul keeps d1 {x}*{y}")
+    elif kind == "lines":
+        vres, vdiv, pal, hres, planes, ok = exp
+        d0 = L(a)
+        if not ok:
+            check(d0 == syms["msg_badhdr"], f"lines {desc} refused", hex(d0))
+            continue
+        check(d0 == 0, f"lines {desc} accepted", hex(d0))
+        pb = hres // 8
+        normal = (planes - 1) * pb
+        lines = vres * vdiv
+        centre = 0xAC if pal else 0x90
+        vstart = centre - lines // 2
+        check(W(a + 8) >> 8 == vstart & 0xFF, f"lines {desc} diwstrt", hex(W(a + 8)))
+        check(W(a + 10) >> 8 == (centre + lines // 2) & 0xFF, f"lines {desc} diwstop", hex(W(a + 10)))
+        check(L(a + 12) == pb * planes * vres, f"lines {desc} videosize")
+        want = []
+        if vdiv > 1:
+            first = (-pb) & 0xFFFF
+            check(W(a + 4) == first and W(a + 6) == first, f"lines {desc} first modulo", hex(W(a + 4)))
+            for i in range(lines):
+                v = vstart + i
+                if v == 256:
+                    want += [0xFFDF, 0xFFFE]
+                m = normal if i % vdiv == vdiv - 1 else (-pb) & 0xFFFF
+                want += [((v & 0xFF) << 8) | 0x07, 0xFFFE, 0x108, m, 0x10A, m]
+        else:
+            check(W(a + 4) == normal, f"lines {desc} modulo")
+        want += [0xFFFF, 0xFFFE]
+        got = [W(a + 16 + 2 * k) for k in range(len(want))]
+        check(got == want, f"lines {desc} copper list",
+              next((f"word {k}: got {g:04x} want {w:04x}" for k, (g, w) in enumerate(zip(got, want)) if g != w), ""))
     elif kind == "part":
         d0 = L(a)
         if exp is None:

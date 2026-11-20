@@ -120,8 +120,11 @@ class HamFile:
         problems = []
         if self.hres not in SUPPORTED_WIDTHS:
             problems.append(f"width {self.hres} not in {SUPPORTED_WIDTHS}")
-        if not 1 <= self.vres <= 256:
-            problems.append(f"height {self.vres} not in 1..256")
+        self.vdiv = 1 << ((self.flags >> 1) & 3)     # each stored line shown vdiv times
+        if self.vdiv > 4:
+            problems.append(f"line repeat {self.vdiv} (must be 1, 2 or 4)")
+        if not 1 <= self.vres * self.vdiv <= 256:
+            problems.append(f"height {self.vres} x {self.vdiv} not in 1..256")
         if self.planes not in (6, 8):
             problems.append(f"{self.planes} bitplanes (must be 6 or 8)")
         if self.channels not in (1, 2):
@@ -172,6 +175,11 @@ class HamFile:
         return self.nframes / self.fps
 
     @property
+    def height(self):
+        """Lines on screen."""
+        return self.vres * self.vdiv
+
+    @property
     def mode(self):
         return "HAM8" if self.planes == 8 else "HAM6"
 
@@ -179,7 +187,9 @@ class HamFile:
         lines = [
             f"file:     {self.path}",
             f"format:   {self.format}, {self.mode} ({'AGA only' if self.planes == 8 else 'any Amiga'})",
-            f"picture:  {self.hres} x {self.vres}, {self.planes} bitplanes",
+            f"picture:  {self.hres} x {self.vres}, {self.planes} bitplanes"
+            + (f", each line shown {self.vdiv} times ({self.hres} x {self.height} on screen)"
+               if self.vdiv > 1 else ""),
             f"sound:    {'stereo' if self.channels == 2 else 'mono'}, {self.rate:.0f} Hz "
             f"(period {self.period}, {'PAL' if self.pal else 'NTSC'} clock)",
             f"timing:   {self.fps:.3f} frames/s, {self.audbytes} samples per frame",
@@ -214,7 +224,8 @@ class HamFile:
 
     def rgb(self, i):
         """Frame i as displayed by the Amiga: (vres, hres, 3) uint8."""
-        return ham_decode(self.codes(i), self.planes)
+        rgb = ham_decode(self.codes(i), self.planes)
+        return np.repeat(rgb, self.vdiv, axis=0) if self.vdiv > 1 else rgb
 
     # -- sound -------------------------------------------------------------
 
@@ -284,7 +295,7 @@ def export(ham, out_path, args):
         wav = os.path.join(tmp, "sound.wav")
         write_wav(wav, ham)
         cmd = ["ffmpeg", "-v", "error", "-y",
-               "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{ham.hres}x{ham.vres}",
+               "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{ham.hres}x{ham.height}",
                "-framerate", f"{ham.fps:.6f}", "-i", "-", "-i", wav,
                # double the size without smoothing, keep the Amiga pixel shape
                "-vf", f"scale=iw*2:ih*2:flags=neighbor,setsar={sar}",
@@ -362,7 +373,7 @@ class Player:
 
     def picture_size(self):
         par = PIXEL_ASPECT["PAL" if self.ham.pal else "NTSC"] if self.aspect else 1.0
-        return round(self.ham.hres * self.scale * par), self.ham.vres * self.scale
+        return round(self.ham.hres * self.scale * par), self.ham.height * self.scale
 
     def open_window(self):
         pg = self.pg
@@ -497,7 +508,7 @@ class Player:
         now = time.perf_counter()
         lines = []
         if self.show_info:
-            lines.append(f"{ham.mode} {ham.hres}x{ham.vres}  {ham.fps:.2f} fps  "
+            lines.append(f"{ham.mode} {ham.hres}x{ham.height}  {ham.fps:.2f} fps  "
                          f"{fmt_time(self.frame / ham.fps)} / {fmt_time(ham.duration)}  "
                          f"frame {self.frame}/{ham.nframes}{'' if self.playing else '  [pause]'}")
         if now < self.message_until:

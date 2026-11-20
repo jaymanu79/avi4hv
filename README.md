@@ -30,9 +30,17 @@ python3 video2ham.py movie.mkv                  # HAM6, PAL timing
 python3 video2ham.py -m both --ntsc movie.mkv   # HAM6 + HAM8, NTSC timing
 python3 video2ham.py --start 1:00 --duration 30 -o clip movie.mp4
 python3 video2ham.py --split 150 movie.mkv      # files of 150 MB at most
+python3 video2ham.py --vdiv 2 --fps 25 movie.mkv # half the lines, 25 fps
 python3 video2ham.py --help                     # all options
 ```
 
+- **Fewer lines, more fps:** `--vdiv 2` stores one line in two and
+  HAMPLAY shows each one twice (`--vdiv 4`: one in four, shown four
+  times). The picture keeps its size on screen with 2 or 4 times less
+  data, so 2 or 4 times more frames per second fit in the same disk speed;
+  it loses vertical detail (fine for 2, blocky for 4). Raise `--fps` to
+  use the gain. The repeat costs nothing to the CPU: the copper changes
+  the bitplane modulo on each line.
 - **Split files:** `--split MB` cuts a long video into files of at most
   MB megabytes: `movie.hv`, `movie.001.hv`, `movie.002.hv`... Each part
   has its own header and plays on its own; HAMPLAY and `hamview.py` go on
