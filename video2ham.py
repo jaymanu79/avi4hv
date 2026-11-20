@@ -51,7 +51,10 @@ MODES = {
                  fps_pal=fractions.Fraction(50, 3), rate=11025, channels=1,
                  pix_fmt="rgb555le", bytes_per_pixel=2, planes=6,
                  legacy_max_frame=0xFFFF),   # HAMNEW: 64 KB buffers, size on 16 bits
-    "ham8": dict(ext=".h8v", width=336, height=240, fps=fractions.Fraction(12),
+    # HAM8 is 320 wide: on AGA the player then fetches the bitplanes 64 bits
+    # at a time, which leaves much more chip RAM bandwidth for loading frames
+    # (336 pixels cannot use that mode). --legacy keeps 336 for HAMAGA.
+    "ham8": dict(ext=".h8v", width=320, legacy_width=336, height=240, fps=fractions.Fraction(12),
                  fps_pal=fractions.Fraction(25, 2), rate=16000, channels=2,
                  pix_fmt="bgr24", bytes_per_pixel=3, planes=8,
                  legacy_max_frame=0x18000),  # HAMAGA: 96 KB buffers
@@ -421,6 +424,8 @@ def convert_mode(path, args, mode_name, duration, source_channels, aspect, start
     mode = dict(MODES[mode_name])
     if args.width:
         mode["width"] = args.width
+    elif args.legacy and "legacy_width" in mode:
+        mode["width"] = mode["legacy_width"]
     if args.pal:
         mode["fps"] = mode["fps_pal"]
     if args.fps:
@@ -590,7 +595,8 @@ def main():
     parser.add_argument("--start", help="start time in the source (seconds or [hh:]mm:ss)")
     parser.add_argument("--duration", help="duration to convert (seconds or [hh:]mm:ss)")
     parser.add_argument("--width", type=int, choices=SUPPORTED_WIDTHS,
-                        help="picture width (default 320 for HAM6, 336 for HAM8)")
+                        help="picture width (default 320; 336 for HAM8 with --legacy). "
+                             "320 plays fastest on AGA")
     parser.add_argument("--height", type=int,
                         help=f"maximum frame height (at most {MAX_HEIGHT}, {MAX_HEIGHT_PAL} in PAL). "
                              "The height follows the shape of the video: no black bars are stored, "
