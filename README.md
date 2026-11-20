@@ -68,7 +68,7 @@ The old `HAMV` header has only the first 5 words, and uses the NTSC clock.
 ## Amiga player: `amiga/HAMPLAY`
 
 ```
-HAMPLAY [BENCH] <file>
+HAMPLAY [BENCH] [LOOP] <file>
 ```
 
 - Plays HAM6 on any Amiga and HAM8 on AGA. It detects the chipset and
@@ -89,6 +89,9 @@ HAMPLAY [BENCH] <file>
 
 `BENCH` reads the file as fast as possible, without sound, and reports the
 frame rate this machine and disk can sustain.
+
+`LOOP` starts the video again from the beginning when it ends, until you
+quit.
 
 To rebuild the player:
 

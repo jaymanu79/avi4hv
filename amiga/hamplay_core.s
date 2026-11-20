@@ -35,6 +35,8 @@ v_bench         rs.b 1          ; benchmark mode
 v_aga           rs.b 1          ; AGA chipset present
 v_pal           rs.b 1          ; PAL machine
 v_quit          rs.b 1          ; user asked to quit
+v_loop          rs.b 1          ; LOOP: start again at the end of the file
+                rs.b 1          ; (keeps v_hdr on an even address)
 v_hdr           rs.b 20         ; file header, see H_xxx
 v_size          rs.b 0
 
@@ -146,13 +148,14 @@ Mul32:
 ; --------------------------------------------------------- arguments
 
 ; ParseArgs - a0 = command line (ends with LF or NUL)
-; Accepts: [BENCH] file   (file may be "quoted"), in any order.
+; Accepts: [BENCH] [LOOP] file   (file may be "quoted"), in any order.
 ; Out: d0 = 0 if ok, else pointer to an error message.
 ParseArgs:
         movem.l d2/a2-a3,-(sp)
         lea     vidfile,a2
         clr.b   (a2)
         sf      v_bench(a4)
+        sf      v_loop(a4)
 .next   move.b  (a0),d0         ; skip blanks
         cmp.b   #' ',d0
         beq.s   .skip
@@ -177,7 +180,7 @@ ParseArgs:
         addq.l  #1,a0
         cmp.b   #'"',d0
         beq.s   .tokend
-        bsr.s   .store
+        bsr     .store
         bra.s   .qloop
 .plain  move.b  (a0),d0
         beq.s   .tokend
@@ -188,7 +191,7 @@ ParseArgs:
         cmp.b   #9,d0
         beq.s   .tokend
         addq.l  #1,a0
-        bsr.s   .store
+        bsr     .store
         bra.s   .plain
 .tokend clr.b   (a3)
         ; keyword?
@@ -201,7 +204,16 @@ ParseArgs:
         beq.s   .notkw
         st      v_bench(a4)
         bra     .next
-.notkw  cmp.b   #'?',tokbuf
+.notkw  move.l  a0,-(sp)
+        lea     tokbuf,a0
+        lea     kw_loop(pc),a1
+        bsr     StrCaseEq
+        move.l  (sp)+,a0
+        tst.b   d0
+        beq.s   .notloop
+        st      v_loop(a4)
+        bra     .next
+.notloop  cmp.b   #'?',tokbuf
         beq.s   .usage
         tst.b   (a2)
         bne.s   .usage          ; two file names
@@ -642,9 +654,11 @@ ddftable                        ; DDFSTRT, DDFSTOP for 288/304/320/336
         dc.w    $30,$D0
 
 kw_bench        dc.b    'BENCH',0
+kw_loop         dc.b    'LOOP',0
 ext_h8v         dc.b    '.H8V',0
-msg_usage       dc.b    'Usage: HAMPLAY [BENCH] <file.hv|file.h8v>',10
+msg_usage       dc.b    'Usage: HAMPLAY [BENCH] [LOOP] <file.hv|file.h8v>',10
                 dc.b    '  BENCH: read the file as fast as possible and report the speed',10
+                dc.b    '  LOOP: start again from the beginning at the end of the video',10
                 dc.b    'Keys: Space pause, Left/Right -/+10 s, Down/Up -/+1 min, Esc quit',10
                 dc.b    'Mouse: right button pause, left button quit',10,0
 msg_badhdr      dc.b    'Not a HAM video, or unsupported format',10,0

@@ -7,7 +7,7 @@
 ;   - PAL or NTSC: the sound pitch and the picture position are adapted
 ;   - BENCH option: measures how fast this machine can read the video
 ;
-; Usage: HAMPLAY [BENCH] file
+; Usage: HAMPLAY [BENCH] [LOOP] file
 ; Keys: Space pause, cursor Left/Right -/+10 s, Down/Up -/+1 min, Esc quit.
 ; Mouse: left button quits, right button pauses.
 ;
@@ -514,6 +514,25 @@ ReadFrame:
         moveq   #0,d0                   ; Z set
 .short  rts
 
+; Rewind - LOOP: back to the first frame. The failed read has already
+; advanced to the next buffer: step back so the next read reuses it, and
+; never overwrites the buffer on screen or the sound being played.
+Rewind:
+        move.w  v_cur(a4),d0
+        subq.w  #1,d0
+        bpl.s   .buf
+        move.w  v_nbuf(a4),d0
+        subq.w  #1,d0
+.buf    move.w  d0,v_cur(a4)
+        move.l  v_dos(a4),a6
+        move.l  v_fh(a4),d1
+        moveq   #0,d2
+        move.w  v_hdrsize(a4),d2
+        moveq   #OFFSET_BEGINNING,d3
+        jsr     _LVOSeek(a6)
+        clr.l   v_frameno(a4)
+        rts
+
 ; InitSeek - number of frames in the file and in 10 seconds
 InitSeek:
         move.l  v_dos(a4),a6
@@ -587,8 +606,13 @@ Play:
         tst.b   v_quit(a4)
         bne     .end
         bsr     ReadFrame
-        bne     .end
-        btst    #10-8,$16(a5)           ; right button: pause
+        beq.s   .got
+        tst.b   v_loop(a4)              ; end of the file
+        beq     .end
+        bsr     Rewind
+        bsr     ReadFrame
+        bne     .end                    ; not even one frame in the file
+.got    btst    #10-8,$16(a5)           ; right button: pause
         bne.s   .noclick
         bsr     PauseLoop
         tst.b   v_quit(a4)

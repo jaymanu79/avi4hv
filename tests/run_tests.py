@@ -32,16 +32,16 @@ def copy_str(src, dst, size=64):
     code.append(f"        lea {src},a0\n        lea {dst},a1\n        move.w #{size-1},d1\n.{lab} move.b (a0)+,(a1)+\n        dbf d1,.{lab}")
 
 # ---------------------------------------------------------------- ParseArgs
-def t_args(cmdline, ok, bench, name, term="\n"):
+def t_args(cmdline, ok, bench, name, term="\n", loop=False):
     a, r = new("arg"), new("res")
     s = cmdline + term
     data.append(a)
     data.append("        dc.b " + ",".join(str(b) for b in s.encode()) + ",0")
     data.append("        even")
     slot(r, 72)
-    code.append(f"        clr.w v_msglen(a4)\n        lea {a},a0\n        bsr ParseArgs\n        move.l d0,{r}\n        move.b v_bench(a4),{r}+4")
+    code.append(f"        clr.w v_msglen(a4)\n        lea {a},a0\n        bsr ParseArgs\n        move.l d0,{r}\n        move.b v_bench(a4),{r}+4\n        move.b v_loop(a4),{r}+5")
     copy_str("vidfile", f"{r}+8")
-    checks.append((r, "args", (ok, bench, name), repr(cmdline)))
+    checks.append((r, "args", (ok, bench, name, loop), repr(cmdline)))
 
 t_args("video.hv", True, False, "video.hv")
 t_args("  BENCH   video.h8v  ", True, True, "video.h8v")
@@ -54,6 +54,10 @@ t_args("one.hv two.hv", False, False, "one.hv")
 t_args("Work:Videos/x.h8v", True, False, "Work:Videos/x.h8v", term="")   # Workbench: NUL-terminated
 t_args("benchmark.hv", True, False, "benchmark.hv")
 t_args("\tvid.hv\t", True, False, "vid.hv")
+t_args("LOOP film.hv", True, False, "film.hv", loop=True)
+t_args('"Work:a b.h8v" loop BENCH', True, True, "Work:a b.h8v", loop=True)
+t_args("loop.hv", True, False, "loop.hv")
+t_args("LOOP", False, False, "", loop=True)
 
 # ------------------------------------------------------------- header checks
 NTSC, PAL = 3579545, 3546895
@@ -336,7 +340,7 @@ usage_addr = syms.get("msg_usage")
 for label, kind, exp, desc in checks:
     a = syms[label]
     if kind == "args":
-        ok, bench, name = exp
+        ok, bench, name, loop = exp
         d0 = L(a)
         check((d0 == 0) == ok, f"args {desc}", f"d0={d0:x}")
         if not ok:
@@ -344,6 +348,7 @@ for label, kind, exp, desc in checks:
         else:
             check(S(a + 8) == name, f"args {desc} name", repr(S(a + 8)))
             check((mem[a + 4] != 0) == bench, f"args {desc} bench")
+            check((mem[a + 5] != 0) == loop, f"args {desc} loop")
     elif kind == "hdr":
         ok, agaerr, e = exp
         d0 = L(a)
